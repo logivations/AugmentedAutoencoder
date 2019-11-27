@@ -35,13 +35,18 @@ class Dataset(object):
         if np.float(eval(self._kw['realistic_occlusion'])):
             self.random_syn_masks
 
+    def get_azimuth_elev_range(self):
+        azimuth_range = (0, 2 * np.pi)
+        elev_range = (0.0, 0.5 * np.pi)
+        return azimuth_range, elev_range
 
     @lazy_property
     def viewsphere_for_embedding(self):
         kw = self._kw
         num_cyclo = int(kw['num_cyclo'])
-        azimuth_range = (0, 2 * np.pi)
-        elev_range = (-0.5 * np.pi, 0.5 * np.pi)
+        # azimuth_range = (0, 2 * np.pi)
+        # elev_range = (-0.5 * np.pi, 0.5 * np.pi)
+        azimuth_range, elev_range = self.get_azimuth_elev_range()
         views, _ = view_sampler.sample_views(
             int(kw['min_n_views']),
             float(kw['radius']),
@@ -215,6 +220,24 @@ class Dataset(object):
         bgr_y = bgr_y[top:bottom, left:right]
         return cv2.resize(bgr_y, self.shape[:2])
 
+    @staticmethod
+    def get_rotation_matrix(theta=0.0, axis='z'):
+        theta = np.pi * theta / 180.0
+        if axis == 'z':
+            return np.array([[np.cos(theta), -np.sin(theta), 0],
+                          [np.sin(theta), np.cos(theta), 0],
+                          [0, 0, 1]])
+        elif axis == 'y':
+            return np.array([[np.cos(theta), 0, np.sin(theta)],
+                          [0, 1, 0],
+                          [-np.sin(theta), 0, np.cos(theta)]])
+        elif axis == 'x':
+            return np.array([[1, 0, 0],
+                          [0, np.cos(theta), -np.sin(theta)],
+                          [0, np.sin(theta), np.cos(theta)]])
+        else:
+            print("Unknown axis type for rotation matrix generation")
+            raise ValueError
 
     def render_training_images(self):
         kw = self._kw
@@ -238,9 +261,16 @@ class Dataset(object):
         for i in np.arange(self.noof_training_imgs):
             bar.update(i)
 
-            # print '%s/%s' % (i,self.noof_training_imgs)
-            # start_time = time.time()
-            R = transform.random_rotation_matrix()[:3,:3]
+            # R = transform.random_rotation_matrix()[:3,:3]
+
+            azimuth = np.random.random() * 360
+            elevation = np.random.random() * 90
+
+            R = self.get_rotation_matrix(0, axis='z')
+            R = R.dot(self.get_rotation_matrix(elevation, axis='x'))
+            R = R.dot(self.get_rotation_matrix(azimuth, axis='y'))
+            R = R.dot(self.get_rotation_matrix(90, axis='x'))
+
             bgr_x, depth_x = self.renderer.render(
                 obj_id=0,
                 W=render_dims[0],
@@ -308,8 +338,9 @@ class Dataset(object):
     def render_embedding_image_batch(self, start, end):
         kw = self._kw
         h, w = self.shape[:2]
-        azimuth_range = (0, 2 * np.pi)
-        elev_range = (-0.5 * np.pi, 0.5 * np.pi)
+        # azimuth_range = (0, 2 * np.pi)
+        # elev_range = (-0.5 * np.pi, 0.5 * np.pi)
+        azimuth_range, elev_range = self.get_azimuth_elev_range()
         radius = float(kw['radius'])
         render_dims = eval(kw['render_dims'])
         K = eval(kw['k'])
