@@ -22,14 +22,14 @@ experiment_group = full_name.pop() if len(full_name) > 0 else ''
 
 file_str = arguments.file_str
 if os.path.isdir(file_str):
-    files = sorted(glob.glob(os.path.join(str(file_str),'*.png'))+glob.glob(os.path.join(str(file_str),'*.jpg')))
+    files = sorted(glob.glob(os.path.join(str(file_str),'*.png'))+glob.glob(os.path.join(str(file_str),'*.jpg'))+glob.glob(os.path.join(str(file_str),'*.JPG')))
 else:
     files = [file_str]
 
 workspace_path = os.environ.get('AE_WORKSPACE_PATH')
 if workspace_path == None:
-    print 'Please define a workspace path:\n'
-    print 'export AE_WORKSPACE_PATH=/path/to/workspace\n'
+    print('Please define a workspace path:\n')
+    print('export AE_WORKSPACE_PATH=/path/to/workspace\n')
     exit(-1)
 log_dir = utils.get_log_dir(workspace_path,experiment_name,experiment_group)
 ckpt_dir = utils.get_checkpoint_dir(log_dir)
@@ -43,10 +43,9 @@ with tf.Session() as sess:
 
     for file in files:
         im = cv2.imread(file)
-        im = cv2.resize(im,(128,128))
-
+        im = cv2.resize(im,(256,256))
         R = codebook.nearest_rotation(sess, im)
-        print R
+        print(R)
 
         pred_view = dataset.render_rot( R,downSample = 1)
     
