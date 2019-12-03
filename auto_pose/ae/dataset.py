@@ -162,6 +162,7 @@ class Dataset(object):
             for j,fname in enumerate(file_list):
                 print('loading bg img %s/%s' % (j,self.noof_bg_imgs))
                 bgr = cv2.imread(fname)
+                # bgr = cv2.resize(bgr, 2*bgr.shape[:2])
                 H,W = bgr.shape[:2]
                 y_anchor = int(np.random.rand() * (H-self.shape[0]))
                 x_anchor = int(np.random.rand() * (W-self.shape[1]))
@@ -263,8 +264,11 @@ class Dataset(object):
 
             # R = transform.random_rotation_matrix()[:3,:3]
 
-            azimuth = np.random.random() * 360
-            elevation = np.random.random() * 90
+            # azimuth = np.random.random() * 360
+            # elevation = np.random.random() * 90
+
+            azimuth = float(i % 360)
+            elevation = float(i // 360)
 
             R = self.get_rotation_matrix(0, axis='z')
             R = R.dot(self.get_rotation_matrix(elevation, axis='x'))
@@ -334,6 +338,8 @@ class Dataset(object):
 
             #print 'rendertime ', render_time, 'processing ', time.time() - start_time
         bar.finish()
+
+        print("Embedding size: ", str(self.embedding_size))
 
     def render_embedding_image_batch(self, start, end):
         kw = self._kw
