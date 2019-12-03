@@ -41,16 +41,42 @@ with tf.Session() as sess:
 
     factory.restore_checkpoint(sess, tf.train.Saver(), ckpt_dir)
 
-    for file in files:
-        im = cv2.imread(file)
-        im = cv2.resize(im,(256,256))
-        R = codebook.nearest_rotation(sess, im)
-        print(R)
+    video_path = '/test_7.MOV'
+    # codec = cv2.VideoWriter_fourcc(*'XVID')
+    # out = cv2.VideoWriter(os.path.join(workspace_path, "out_" + os.path.basename(os.path.splitext(video_path)[0]) + ".avi"), codec, 30, (512, 256))
+    cap = cv2.VideoCapture(video_path)
+    successive_falses = 0
+    while cap.isOpened() and successive_falses < 30:
+        ret, im = cap.read()
+        if ret:
+            successive_falses = max(0, successive_falses - 1)
+            H, W = im.shape[:2]
+            mmin, mmax = min(H, W), max(H, W)
+            diff = mmax - mmin
+            diff = diff // 3
+            offset = 0
+            im = im[:, offset: offset + mmin + diff]
 
-        pred_view = dataset.render_rot( R,downSample = 1)
-    
-        cv2.imshow('resized img', cv2.resize(im/255.,(256,256)))
-        cv2.imshow('pred_view', cv2.resize(pred_view,(256,256)))
-        cv2.waitKey(0)
+            im = cv2.resize(im, (256,256))
+            start_time = time.time()
+            R = codebook.nearest_rotation(sess, im)
+            end_time = time.time()
+            print("inference time: ", end_time - start_time)
+            print(R)
+            # pred_view = dataset.render_rot( R,downSample = 1)
 
+            # out_img = np.hstack([pred_view, im])
+            # out.write(out_img)
+
+            # cv2.imshow('resized img', cv2.resize(im/255.,(256,256)))
+            # cv2.imshow('pred_view', cv2.resize(pred_view,(256,256)))
+            # cv2.imshow('both together', out_img)
+            # cv2.waitKey(20)
+        else:
+            successive_falses = successive_falses + 1
+
+    cap.release()
+    # out.release()
+
+    cv2.destroyAllWindows()
 
