@@ -8,7 +8,7 @@ from .encoder import Encoder
 from .decoder import Decoder
 from .codebook import Codebook
 
-def build_dataset(dataset_path, args, workspace_path):
+def build_dataset(dataset_path, args, workspace_path=None):
     dataset_args = { k:v for k,v in
         args.items('Dataset') +
         args.items('Paths') +
