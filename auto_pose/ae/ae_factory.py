@@ -8,14 +8,14 @@ from .encoder import Encoder
 from .decoder import Decoder
 from .codebook import Codebook
 
-def build_dataset(dataset_path, args):
+def build_dataset(dataset_path, args, workspace_path):
     dataset_args = { k:v for k,v in
         args.items('Dataset') +
         args.items('Paths') +
         args.items('Augmentation')+
         args.items('Queue') +
         args.items('Embedding')}
-    dataset = Dataset(dataset_path, **dataset_args)
+    dataset = Dataset(dataset_path, workspace_path, **dataset_args)
     return dataset
 
 def build_queue(dataset, args):
@@ -92,10 +92,11 @@ def build_codebook(encoder, dataset, args):
     codebook = Codebook(encoder, dataset, embed_bb)
     return codebook
 
-def build_codebook_from_name(experiment_name, experiment_group='', return_dataset=False, return_decoder = False):
+def build_codebook_from_name(experiment_name, experiment_group='', return_dataset=False, return_decoder = False, workspace_path=None):
     import os
     import configparser
-    workspace_path = os.environ.get('AE_WORKSPACE_PATH')
+    if workspace_path is None:
+        workspace_path = os.environ.get('AE_WORKSPACE_PATH')
 
     if workspace_path == None:
         print('Please define a workspace path:\n')
@@ -118,7 +119,7 @@ def build_codebook_from_name(experiment_name, experiment_group='', return_datase
         exit()
 
     with tf.variable_scope(experiment_name):
-        dataset = build_dataset(dataset_path, args)
+        dataset = build_dataset(dataset_path, args, workspace_path)
         x = tf.placeholder(tf.float32, [None,] + list(dataset.shape))
         encoder = build_encoder(x, args)
         codebook = build_codebook(encoder, dataset, args)

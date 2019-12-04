@@ -15,7 +15,8 @@ from .utils import lazy_property
 
 class Dataset(object):
 
-    def __init__(self, dataset_path, **kw):
+    def __init__(self, dataset_path, workspace_path=None, **kw):
+        self.workspace_path = os.environ.get('AE_WORKSPACE_PATH') if workspace_path is None else workspace_path
 
         self.shape = (int(kw['h']), int(kw['w']), int(kw['c']))
         self.noof_training_imgs = int(kw['noof_training_imgs'])
@@ -442,10 +443,9 @@ class Dataset(object):
     @lazy_property
     def random_syn_masks(self):
         import bitarray
-        workspace_path = os.environ.get('AE_WORKSPACE_PATH')
 
         random_syn_masks = bitarray.bitarray()
-        with open(os.path.join(workspace_path,'random_tless_masks/arbitrary_syn_masks_1000.bin'), 'r') as fh:
+        with open(os.path.join(self.workspace_path,'random_tless_masks/arbitrary_syn_masks_1000.bin'), 'r') as fh:
             random_syn_masks.fromfile(fh)
         occlusion_masks = np.fromstring(random_syn_masks.unpack(), dtype=np.bool)
         occlusion_masks = occlusion_masks.reshape(-1,224,224,1).astype(np.float32)
