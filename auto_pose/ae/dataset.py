@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import csv
 
 import numpy as np
 import time
@@ -88,6 +89,8 @@ class Dataset(object):
     def get_training_images(self, dataset_path, args):
         current_config_hash = hashlib.md5((str(args.items('Dataset')+args.items('Paths'))).encode('utf-8')).hexdigest()
         current_file_name = os.path.join(dataset_path, current_config_hash + '.npz')
+        if self._kw['create_new_dataset']:
+            self.create_dataset(dataset_dir='/data/pallet_dataset')
 
         if os.path.exists(current_file_name):
             training_data = np.load(current_file_name)
@@ -241,6 +244,100 @@ class Dataset(object):
             print("Unknown axis type for rotation matrix generation")
             raise ValueError
 
+    def create_dataset(self, dataset_dir, angular_res=360):
+        images_dir = os.path.join(dataset_dir, 'images')
+        csv_file_path = os.path.join(dataset_dir, 'angles')
+        csv_file = open(csv_file_path, 'w')
+        writer = csv.writer(csv_file)
+        writer.writerow(["image_name", "elevation", "azimuth"])
+
+        image_id = 1
+        angles = []
+
+        kw = self._kw
+        H, W = int(kw['h']), int(kw['w'])
+        render_dims = eval(kw['render_dims'])
+        K = eval(kw['k'])
+        K = np.array(K).reshape(3,3)
+        clip_near = float(kw['clip_near'])
+        clip_far = float(kw['clip_far'])
+        pad_factor = float(kw['pad_factor'])
+        max_rel_offset = float(kw['max_rel_offset'])
+        t = np.array([0, 0, float(kw['radius'])])
+
+        for elevation in range(90):
+            for azimuth in np.linspace(0, 359.9, int(angular_res * np.sin(np.pi/2 - (np.pi * elevation / 180.0)))):
+                image_name = 'image_' + str(image_id)
+                image_id += 1
+                image_path = os.path.join(images_dir, image_name + '.jpg')
+                writer.writerow([image_name, elevation, azimuth])
+
+                R = self.get_rotation_matrix(0, axis='z')
+                R = R.dot(self.get_rotation_matrix(elevation, axis='x'))
+                R = R.dot(self.get_rotation_matrix(azimuth, axis='y'))
+                R = R.dot(self.get_rotation_matrix(90, axis='x'))
+
+                bgr_x, depth_x = self.renderer.render(
+                    obj_id=0,
+                    W=render_dims[0],
+                    H=render_dims[1],
+                    K=K.copy(),
+                    R=R,
+                    t=t,
+                    near=clip_near,
+                    far=clip_far,
+                    random_light=True
+                )
+                bgr_y, depth_y = self.renderer.render(
+                    obj_id=0,
+                    W=render_dims[0],
+                    H=render_dims[1],
+                    K=K.copy(),
+                    R=R,
+                    t=t,
+                    near=clip_near,
+                    far=clip_far,
+                    random_light=False
+                )
+
+                ys, xs = np.nonzero(depth_x > 0)
+
+                try:
+                    obj_bb = view_sampler.calc_2d_bbox(xs, ys, render_dims)
+                except ValueError as e:
+                    print('Object in Rendering not visible. Have you scaled the vertices to mm?')
+                    break
+
+
+                x, y, w, h = obj_bb
+
+                rand_trans_x = np.random.uniform(-max_rel_offset, max_rel_offset) * w
+                rand_trans_y = np.random.uniform(-max_rel_offset, max_rel_offset) * h
+
+                obj_bb_off = obj_bb + np.array([rand_trans_x,rand_trans_y,0,0])
+
+                bgr_x = self.extract_square_patch(bgr_x, obj_bb_off, pad_factor,resize=(W,H),interpolation = cv2.INTER_NEAREST)
+                depth_x = self.extract_square_patch(depth_x, obj_bb_off, pad_factor,resize=(W,H),interpolation = cv2.INTER_NEAREST)
+                mask_x = depth_x == 0.
+
+
+                ys, xs = np.nonzero(depth_y > 0)
+                obj_bb = view_sampler.calc_2d_bbox(xs, ys, render_dims)
+
+                bgr_y = self.extract_square_patch(bgr_y, obj_bb, pad_factor,resize=(W,H),interpolation = cv2.INTER_NEAREST)
+
+                if self.shape[2] == 1:
+                    bgr_x = cv2.cvtColor(np.uint8(bgr_x), cv2.COLOR_BGR2GRAY)[:,:,np.newaxis]
+                    bgr_y = cv2.cvtColor(np.uint8(bgr_y), cv2.COLOR_BGR2GRAY)[:,:,np.newaxis]
+
+                # train_x.append(bgr_x.astype(np.uint8))
+                # self.mask_x[i] = mask_x
+                image = bgr_y.astype(np.uint8)
+                cv2.imwrite(image_path, image)
+
+        csv_file.close()
+
+
     def render_training_images(self):
         kw = self._kw
         H, W = int(kw['h']), int(kw['w'])
@@ -269,7 +366,7 @@ class Dataset(object):
             # elevation = np.random.random() * 90
 
             azimuth = float(i % 360)
-            elevation = float(i // 360)
+            elevation = float((i // 360) % 90)
 
             R = self.get_rotation_matrix(0, axis='z')
             R = R.dot(self.get_rotation_matrix(elevation, axis='x'))
