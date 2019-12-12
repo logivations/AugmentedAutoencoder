@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import csv
 
 import numpy as np
 import time
@@ -15,7 +16,8 @@ from .utils import lazy_property
 
 class Dataset(object):
 
-    def __init__(self, dataset_path, **kw):
+    def __init__(self, dataset_path, workspace_path=None, **kw):
+        self.workspace_path = os.environ.get('AE_WORKSPACE_PATH') if workspace_path is None else workspace_path
 
         self.shape = (int(kw['h']), int(kw['w']), int(kw['c']))
         self.noof_training_imgs = int(kw['noof_training_imgs'])
@@ -35,26 +37,68 @@ class Dataset(object):
         if np.float(eval(self._kw['realistic_occlusion'])):
             self.random_syn_masks
 
+    def get_azimuth_elev_range(self):
+        azimuth_range = (0, 2 * np.pi)
+        elev_range = (0.0, 0.5 * np.pi)
+        return azimuth_range, elev_range
+
+    # @lazy_property
+    # def viewsphere_for_embedding(self):
+    #     viewsphere_for_embedding_file_path = os.path.join(self.workspace_path, 'viewsphere_for_embedding.npz')
+    #     if os.path.exists(viewsphere_for_embedding_file_path):
+    #         viewsphere_for_embedding = np.load(viewsphere_for_embedding_file_path)
+    #         Rs = viewsphere_for_embedding['Rs']
+    #     else:
+    #         kw = self._kw
+    #         num_cyclo = int(kw['num_cyclo'])
+    #         azimuth_range, elev_range = self.get_azimuth_elev_range()
+    #         views, _ = view_sampler.sample_views(int(kw['min_n_views']), float(kw['radius']), azimuth_range, elev_range)
+    #         Rs = np.empty((len(views) * num_cyclo, 3, 3))
+    #         i = 0
+    #         for view in views:
+    #             for cyclo in np.linspace(0, 2. * np.pi, num_cyclo):
+    #                 rot_z = np.array(
+    #                     [[np.cos(-cyclo), -np.sin(-cyclo), 0], [np.sin(-cyclo), np.cos(-cyclo), 0], [0, 0, 1]])
+    #                 Rs[i, :, :] = rot_z.dot(view['R'])
+    #                 i += 1
+    #         np.savez(viewsphere_for_embedding_file_path, Rs=Rs)
+    #     return Rs
 
     @lazy_property
     def viewsphere_for_embedding(self):
-        kw = self._kw
-        num_cyclo = int(kw['num_cyclo'])
-        azimuth_range = (0, 2 * np.pi)
-        elev_range = (-0.5 * np.pi, 0.5 * np.pi)
-        views, _ = view_sampler.sample_views(
-            int(kw['min_n_views']),
-            float(kw['radius']),
-            azimuth_range,
-            elev_range
-        )
-        Rs = np.empty( (len(views)*num_cyclo, 3, 3) )
-        i = 0
-        for view in views:
-            for cyclo in np.linspace(0, 2.*np.pi, num_cyclo):
-                rot_z = np.array([[np.cos(-cyclo), -np.sin(-cyclo), 0], [np.sin(-cyclo), np.cos(-cyclo), 0], [0, 0, 1]])
-                Rs[i,:,:] = rot_z.dot(view['R'])
-                i += 1
+        print('Craeting viewsphere for embedding')
+        viewsphere_for_embedding_file_path = os.path.join(self.workspace_path, 'viewsphere_for_embedding.npz')
+
+        if os.path.exists(viewsphere_for_embedding_file_path):
+            viewsphere_for_embedding = np.load(viewsphere_for_embedding_file_path)
+            Rs = viewsphere_for_embedding['Rs']
+            angles = viewsphere_for_embedding['angles']
+        else:
+            Rs = []
+            angles = []
+            sep_angle = float(self._kw['sep_angle'])     # angle between two points on sphere in degrees
+            for elev in np.arange(0, 89, sep_angle):
+                elev_rad = elev * np.pi / 180.0
+                azi_sep_ang = sep_angle / np.sin(np.pi / 2 - elev_rad)
+                for azim in np.arange(0, 359, azi_sep_ang):
+                    azim = azim + np.random.uniform(0.0, 0.9 * azi_sep_ang)
+                    for rot_z in np.arange(0.0, 359.0, sep_angle):
+
+                        R = self.get_rotation_matrix(rot_z, axis='z')
+                        R = R.dot(self.get_rotation_matrix(elev, axis='x'))
+                        R = R.dot(self.get_rotation_matrix(azim, axis='y'))
+                        R = R.dot(self.get_rotation_matrix(90, axis='x'))
+
+                        Rs.append(R)
+                        angles.append([elev, azim, rot_z])
+
+            Rs = np.asarray(Rs)
+            angles = np.asarray(angles)
+
+            np.savez(viewsphere_for_embedding_file_path, Rs=Rs, angles=angles)
+
+        self.angles = angles
+
         return Rs
 
     @lazy_property
@@ -83,12 +127,17 @@ class Dataset(object):
         current_config_hash = hashlib.md5((str(args.items('Dataset')+args.items('Paths'))).encode('utf-8')).hexdigest()
         current_file_name = os.path.join(dataset_path, current_config_hash + '.npz')
 
+        if self._kw['create_new_dataset'] == 'True':
+            self.create_dataset(dataset_dir='/data/pallet_dataset')
+
         if os.path.exists(current_file_name):
+            print('Loading dataset from disk...')
             training_data = np.load(current_file_name)
             self.train_x = training_data['train_x'].astype(np.uint8)
             self.mask_x = training_data['mask_x']
             self.train_y = training_data['train_y'].astype(np.uint8)
         else:
+            print('Could not find dataset file : ', current_file_name)
             self.render_training_images()
             np.savez(current_file_name, train_x = self.train_x, mask_x = self.mask_x, train_y = self.train_y)
         self.noof_obj_pixels = np.count_nonzero(self.mask_x==0,axis=(1,2))
@@ -157,6 +206,7 @@ class Dataset(object):
             for j,fname in enumerate(file_list):
                 print('loading bg img %s/%s' % (j,self.noof_bg_imgs))
                 bgr = cv2.imread(fname)
+                # bgr = cv2.resize(bgr, 2*bgr.shape[:2])
                 H,W = bgr.shape[:2]
                 y_anchor = int(np.random.rand() * (H-self.shape[0]))
                 x_anchor = int(np.random.rand() * (W-self.shape[1]))
@@ -215,8 +265,127 @@ class Dataset(object):
         bgr_y = bgr_y[top:bottom, left:right]
         return cv2.resize(bgr_y, self.shape[:2])
 
+    @staticmethod
+    def get_rotation_matrix(theta=0.0, axis='z'):
+        theta = np.pi * theta / 180.0
+        if axis == 'z':
+            return np.array([[np.cos(theta), -np.sin(theta), 0],
+                          [np.sin(theta), np.cos(theta), 0],
+                          [0, 0, 1]])
+        elif axis == 'y':
+            return np.array([[np.cos(theta), 0, np.sin(theta)],
+                          [0, 1, 0],
+                          [-np.sin(theta), 0, np.cos(theta)]])
+        elif axis == 'x':
+            return np.array([[1, 0, 0],
+                          [0, np.cos(theta), -np.sin(theta)],
+                          [0, np.sin(theta), np.cos(theta)]])
+        else:
+            print("Unknown axis type for rotation matrix generation")
+            raise ValueError
+
+    def create_dataset(self, dataset_dir, angular_res=60):
+
+        # TODO: change this function for better spherical sampling and include cam rotation around z axis
+
+        print('Creating dataset (umut)')
+
+        images_dir = os.path.join(dataset_dir, 'images')
+        csv_file_path = os.path.join(dataset_dir, 'angles')
+        csv_file = open(csv_file_path, 'w')
+        writer = csv.writer(csv_file)
+        writer.writerow(["image_name", "elevation", "azimuth"])
+
+        image_id = 1
+        angles = []
+
+        kw = self._kw
+        H, W = int(kw['h']), int(kw['w'])
+        render_dims = eval(kw['render_dims'])
+        K = eval(kw['k'])
+        K = np.array(K).reshape(3,3)
+        clip_near = float(kw['clip_near'])
+        clip_far = float(kw['clip_far'])
+        pad_factor = float(kw['pad_factor'])
+        max_rel_offset = float(kw['max_rel_offset'])
+        t = np.array([0, 0, float(kw['radius'])])
+
+        for elevation in range(90):
+            for azimuth in np.linspace(0, 359.9, int(angular_res * np.sin(np.pi/2 - (np.pi * elevation / 180.0)))):
+                image_name = 'image_' + str(image_id)
+                image_id += 1
+                image_path = os.path.join(images_dir, image_name + '.jpg')
+                writer.writerow([image_name, elevation, azimuth])
+
+                R = self.get_rotation_matrix(0, axis='z')
+                R = R.dot(self.get_rotation_matrix(elevation, axis='x'))
+                R = R.dot(self.get_rotation_matrix(azimuth, axis='y'))
+                R = R.dot(self.get_rotation_matrix(90, axis='x'))
+
+                bgr_x, depth_x = self.renderer.render(
+                    obj_id=0,
+                    W=render_dims[0],
+                    H=render_dims[1],
+                    K=K.copy(),
+                    R=R,
+                    t=t,
+                    near=clip_near,
+                    far=clip_far,
+                    random_light=True
+                )
+                bgr_y, depth_y = self.renderer.render(
+                    obj_id=0,
+                    W=render_dims[0],
+                    H=render_dims[1],
+                    K=K.copy(),
+                    R=R,
+                    t=t,
+                    near=clip_near,
+                    far=clip_far,
+                    random_light=False
+                )
+
+                ys, xs = np.nonzero(depth_x > 0)
+
+                try:
+                    obj_bb = view_sampler.calc_2d_bbox(xs, ys, render_dims)
+                except ValueError as e:
+                    print('Object in Rendering not visible. Have you scaled the vertices to mm?')
+                    break
+
+
+                x, y, w, h = obj_bb
+
+                rand_trans_x = np.random.uniform(-max_rel_offset, max_rel_offset) * w
+                rand_trans_y = np.random.uniform(-max_rel_offset, max_rel_offset) * h
+
+                obj_bb_off = obj_bb + np.array([rand_trans_x,rand_trans_y,0,0])
+
+                bgr_x = self.extract_square_patch(bgr_x, obj_bb_off, pad_factor,resize=(W,H),interpolation = cv2.INTER_NEAREST)
+                depth_x = self.extract_square_patch(depth_x, obj_bb_off, pad_factor,resize=(W,H),interpolation = cv2.INTER_NEAREST)
+                mask_x = depth_x == 0.
+
+
+                ys, xs = np.nonzero(depth_y > 0)
+                obj_bb = view_sampler.calc_2d_bbox(xs, ys, render_dims)
+
+                bgr_y = self.extract_square_patch(bgr_y, obj_bb, pad_factor,resize=(W,H),interpolation = cv2.INTER_NEAREST)
+
+                if self.shape[2] == 1:
+                    bgr_x = cv2.cvtColor(np.uint8(bgr_x), cv2.COLOR_BGR2GRAY)[:,:,np.newaxis]
+                    bgr_y = cv2.cvtColor(np.uint8(bgr_y), cv2.COLOR_BGR2GRAY)[:,:,np.newaxis]
+
+                # train_x.append(bgr_x.astype(np.uint8))
+                # self.mask_x[i] = mask_x
+                image = bgr_y.astype(np.uint8)
+                cv2.imwrite(image_path, image)
+
+        csv_file.close()
+
 
     def render_training_images(self):
+        print('Render training images')
+
         kw = self._kw
         H, W = int(kw['h']), int(kw['w'])
         render_dims = eval(kw['render_dims'])
@@ -238,9 +407,20 @@ class Dataset(object):
         for i in np.arange(self.noof_training_imgs):
             bar.update(i)
 
-            # print '%s/%s' % (i,self.noof_training_imgs)
-            # start_time = time.time()
-            R = transform.random_rotation_matrix()[:3,:3]
+            # R = transform.random_rotation_matrix()[:3,:3]
+
+            # azimuth = np.random.random() * 360
+            # elevation = np.random.random() * 90
+
+            azimuth = float(i % 360)
+            elevation = float((i // 360) % 90)
+            rot_z = np.random.random() * 350
+
+            R = self.get_rotation_matrix(rot_z, axis='z')
+            R = R.dot(self.get_rotation_matrix(elevation, axis='x'))
+            R = R.dot(self.get_rotation_matrix(azimuth, axis='y'))
+            R = R.dot(self.get_rotation_matrix(90, axis='x'))
+
             bgr_x, depth_x = self.renderer.render(
                 obj_id=0,
                 W=render_dims[0],
@@ -263,19 +443,12 @@ class Dataset(object):
                 far=clip_far,
                 random_light=False
             )
-            # render_time = time.time() - start_time
-            # cv2.imshow('bgr_x',bgr_x)
-            # cv2.imshow('bgr_y',bgr_y)
-            # cv2.waitKey(0)
-
             ys, xs = np.nonzero(depth_x > 0)
-
             try:
                 obj_bb = view_sampler.calc_2d_bbox(xs, ys, render_dims)
             except ValueError as e:
                 print('Object in Rendering not visible. Have you scaled the vertices to mm?')
                 break
-
 
             x, y, w, h = obj_bb
 
@@ -287,7 +460,6 @@ class Dataset(object):
             bgr_x = self.extract_square_patch(bgr_x, obj_bb_off, pad_factor,resize=(W,H),interpolation = cv2.INTER_NEAREST)
             depth_x = self.extract_square_patch(depth_x, obj_bb_off, pad_factor,resize=(W,H),interpolation = cv2.INTER_NEAREST)
             mask_x = depth_x == 0.
-
 
             ys, xs = np.nonzero(depth_y > 0)
             obj_bb = view_sampler.calc_2d_bbox(xs, ys, render_dims)
@@ -302,14 +474,13 @@ class Dataset(object):
             self.mask_x[i] = mask_x
             self.train_y[i] = bgr_y.astype(np.uint8)
 
-            #print 'rendertime ', render_time, 'processing ', time.time() - start_time
         bar.finish()
+
+        print("Embedding size: ", str(self.embedding_size))
 
     def render_embedding_image_batch(self, start, end):
         kw = self._kw
         h, w = self.shape[:2]
-        azimuth_range = (0, 2 * np.pi)
-        elev_range = (-0.5 * np.pi, 0.5 * np.pi)
         radius = float(kw['radius'])
         render_dims = eval(kw['render_dims'])
         K = eval(kw['k'])
@@ -325,25 +496,19 @@ class Dataset(object):
 
         for i, R in enumerate(self.viewsphere_for_embedding[start:end]):
             bgr_y, depth_y = self.renderer.render(
-                obj_id=0,
-                W=render_dims[0],
-                H=render_dims[1],
-                K=K.copy(),
-                R=R,
-                t=t,
-                near=clip_near,
-                far=clip_far,
-                random_light=False
-            )
-            # cv2.imshow('depth',depth_y)
-            # cv2.imshow('bgr',bgr_y)
-            # print depth_y.max()
-            # cv2.waitKey(0)
+                                                    obj_id=0,
+                                                    W=render_dims[0],
+                                                    H=render_dims[1],
+                                                    K=K.copy(),
+                                                    R=R,
+                                                    t=t,
+                                                    near=clip_near,
+                                                    far=clip_far,
+                                                    random_light=False
+                                                )
             ys, xs = np.nonzero(depth_y > 0)
             obj_bb = view_sampler.calc_2d_bbox(xs, ys, render_dims)
-
             obj_bbs[i] = obj_bb
-
             resized_bgr_y = self.extract_square_patch(bgr_y, obj_bb, pad_factor,resize=self.shape[:2],interpolation = cv2.INTER_NEAREST)
 
             if self.shape[2] == 1:
@@ -405,10 +570,9 @@ class Dataset(object):
     @lazy_property
     def random_syn_masks(self):
         import bitarray
-        workspace_path = os.environ.get('AE_WORKSPACE_PATH')
 
         random_syn_masks = bitarray.bitarray()
-        with open(os.path.join(workspace_path,'random_tless_masks/arbitrary_syn_masks_1000.bin'), 'r') as fh:
+        with open(os.path.join(self.workspace_path,'random_tless_masks/arbitrary_syn_masks_1000.bin'), 'r') as fh:
             random_syn_masks.fromfile(fh)
         occlusion_masks = np.fromstring(random_syn_masks.unpack(), dtype=np.bool)
         occlusion_masks = occlusion_masks.reshape(-1,224,224,1).astype(np.float32)

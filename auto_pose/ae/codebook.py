@@ -12,7 +12,7 @@ from . import utils as u
 class Codebook(object):
 
     def __init__(self, encoder, dataset, embed_bb):
-        
+
         self._encoder = encoder
         self._dataset = dataset
         self.embed_bb = embed_bb
@@ -49,7 +49,6 @@ class Codebook(object):
 
 
     def nearest_rotation(self, session, x, top_n=1, upright=False, return_idcs=False):
-        #R_model2cam
 
         if x.dtype == 'uint8':
             x = x/255.
@@ -68,13 +67,13 @@ class Codebook(object):
         if return_idcs:
             return idcs
         else:
-            return self._dataset.viewsphere_for_embedding[idcs].squeeze()
+            return self._dataset.viewsphere_for_embedding[idcs].squeeze(), self._dataset.angles[idcs].squeeze()
 
 
 
     def auto_pose6d(self, session, x, predicted_bb, K_test, top_n, train_args, depth_pred=None, upright=False):
         
-        idcs = self.nearest_rotation(session, x, top_n=top_n, upright=upright,return_idcs=True)
+        idcs, _ = self.nearest_rotation(session, x, top_n=top_n, upright=upright,return_idcs=True)
         Rs_est = self._dataset.viewsphere_for_embedding[idcs]
 
 
