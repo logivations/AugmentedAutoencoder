@@ -55,7 +55,7 @@ def plot_reconstruction_test_batch(sess, codebook, decoder, test_img_crops, noof
     reconst = sess.run(decoder.x, feed_dict={encoder.x: x})
     nearest_neighbors = []
     for xi in x:
-        Rs_est = codebook.nearest_rotation(sess, xi, top_n=8)
+        Rs_est, _ = codebook.nearest_rotation(sess, xi, top_n=8)
         pred_views = []
         pred_views.append(xi*255)
         for R_est in Rs_est:

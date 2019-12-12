@@ -42,26 +42,63 @@ class Dataset(object):
         elev_range = (0.0, 0.5 * np.pi)
         return azimuth_range, elev_range
 
+    # @lazy_property
+    # def viewsphere_for_embedding(self):
+    #     viewsphere_for_embedding_file_path = os.path.join(self.workspace_path, 'viewsphere_for_embedding.npz')
+    #     if os.path.exists(viewsphere_for_embedding_file_path):
+    #         viewsphere_for_embedding = np.load(viewsphere_for_embedding_file_path)
+    #         Rs = viewsphere_for_embedding['Rs']
+    #     else:
+    #         kw = self._kw
+    #         num_cyclo = int(kw['num_cyclo'])
+    #         azimuth_range, elev_range = self.get_azimuth_elev_range()
+    #         views, _ = view_sampler.sample_views(int(kw['min_n_views']), float(kw['radius']), azimuth_range, elev_range)
+    #         Rs = np.empty((len(views) * num_cyclo, 3, 3))
+    #         i = 0
+    #         for view in views:
+    #             for cyclo in np.linspace(0, 2. * np.pi, num_cyclo):
+    #                 rot_z = np.array(
+    #                     [[np.cos(-cyclo), -np.sin(-cyclo), 0], [np.sin(-cyclo), np.cos(-cyclo), 0], [0, 0, 1]])
+    #                 Rs[i, :, :] = rot_z.dot(view['R'])
+    #                 i += 1
+    #         np.savez(viewsphere_for_embedding_file_path, Rs=Rs)
+    #     return Rs
+
     @lazy_property
     def viewsphere_for_embedding(self):
-        kw = self._kw
-        num_cyclo = int(kw['num_cyclo'])
-        # azimuth_range = (0, 2 * np.pi)
-        # elev_range = (-0.5 * np.pi, 0.5 * np.pi)
-        azimuth_range, elev_range = self.get_azimuth_elev_range()
-        views, _ = view_sampler.sample_views(
-            int(kw['min_n_views']),
-            float(kw['radius']),
-            azimuth_range,
-            elev_range
-        )
-        Rs = np.empty( (len(views)*num_cyclo, 3, 3) )
-        i = 0
-        for view in views:
-            for cyclo in np.linspace(0, 2.*np.pi, num_cyclo):
-                rot_z = np.array([[np.cos(-cyclo), -np.sin(-cyclo), 0], [np.sin(-cyclo), np.cos(-cyclo), 0], [0, 0, 1]])
-                Rs[i,:,:] = rot_z.dot(view['R'])
-                i += 1
+
+        viewsphere_for_embedding_file_path = os.path.join(self.workspace_path, 'viewsphere_for_embedding.npz')
+
+        if os.path.exists(viewsphere_for_embedding_file_path):
+            viewsphere_for_embedding = np.load(viewsphere_for_embedding_file_path)
+            Rs = viewsphere_for_embedding['Rs']
+            angles = viewsphere_for_embedding['angles']
+        else:
+            Rs = []
+            angles = []
+            sep_angle = 5.0     # angle between two points on sphere in degrees
+            for elev in np.arange(0, 89, sep_angle):
+                elev_rad = elev * np.pi / 180.0
+                azi_sep_ang = sep_angle / np.sin(np.pi / 2 - elev_rad)
+                for azim in np.arange(0, 359, azi_sep_ang):
+                    azim = azim + np.random.uniform(0.0, 0.9 * azi_sep_ang)
+                    for rot_z in np.arange(0.0, 359.0, sep_angle):
+
+                        R = self.get_rotation_matrix(rot_z, axis='z')
+                        R = R.dot(self.get_rotation_matrix(elev, axis='x'))
+                        R = R.dot(self.get_rotation_matrix(azim, axis='y'))
+                        R = R.dot(self.get_rotation_matrix(90, axis='x'))
+
+                        Rs.append(R)
+                        angles.append([elev, azim, rot_z])
+
+            Rs = np.asarray(Rs)
+            angles = np.asarray(angles)
+
+            np.savez(viewsphere_for_embedding_file_path, Rs=Rs, angles=angles)
+
+        self.angles = angles
+
         return Rs
 
     @lazy_property
@@ -442,9 +479,6 @@ class Dataset(object):
     def render_embedding_image_batch(self, start, end):
         kw = self._kw
         h, w = self.shape[:2]
-        # azimuth_range = (0, 2 * np.pi)
-        # elev_range = (-0.5 * np.pi, 0.5 * np.pi)
-        azimuth_range, elev_range = self.get_azimuth_elev_range()
         radius = float(kw['radius'])
         render_dims = eval(kw['render_dims'])
         K = eval(kw['k'])
@@ -460,25 +494,19 @@ class Dataset(object):
 
         for i, R in enumerate(self.viewsphere_for_embedding[start:end]):
             bgr_y, depth_y = self.renderer.render(
-                obj_id=0,
-                W=render_dims[0],
-                H=render_dims[1],
-                K=K.copy(),
-                R=R,
-                t=t,
-                near=clip_near,
-                far=clip_far,
-                random_light=False
-            )
-            # cv2.imshow('depth',depth_y)
-            # cv2.imshow('bgr',bgr_y)
-            # print depth_y.max()
-            # cv2.waitKey(0)
+                                                    obj_id=0,
+                                                    W=render_dims[0],
+                                                    H=render_dims[1],
+                                                    K=K.copy(),
+                                                    R=R,
+                                                    t=t,
+                                                    near=clip_near,
+                                                    far=clip_far,
+                                                    random_light=False
+                                                )
             ys, xs = np.nonzero(depth_y > 0)
             obj_bb = view_sampler.calc_2d_bbox(xs, ys, render_dims)
-
             obj_bbs[i] = obj_bb
-
             resized_bgr_y = self.extract_square_patch(bgr_y, obj_bb, pad_factor,resize=self.shape[:2],interpolation = cv2.INTER_NEAREST)
 
             if self.shape[2] == 1:
