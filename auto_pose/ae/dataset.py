@@ -76,7 +76,7 @@ class Dataset(object):
         else:
             Rs = []
             angles = []
-            sep_angle = 5.0     # angle between two points on sphere in degrees
+            sep_angle = self._kw['sep_angle']     # angle between two points on sphere in degrees
             for elev in np.arange(0, 89, sep_angle):
                 elev_rad = elev * np.pi / 180.0
                 azi_sep_ang = sep_angle / np.sin(np.pi / 2 - elev_rad)
