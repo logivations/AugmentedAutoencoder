@@ -126,15 +126,18 @@ class Dataset(object):
     def get_training_images(self, dataset_path, args):
         current_config_hash = hashlib.md5((str(args.items('Dataset')+args.items('Paths'))).encode('utf-8')).hexdigest()
         current_file_name = os.path.join(dataset_path, current_config_hash + '.npz')
+
         if self._kw['create_new_dataset'] == 'True':
             self.create_dataset(dataset_dir='/data/pallet_dataset')
 
         if os.path.exists(current_file_name):
+            print('Loading dataset from disk...')
             training_data = np.load(current_file_name)
             self.train_x = training_data['train_x'].astype(np.uint8)
             self.mask_x = training_data['mask_x']
             self.train_y = training_data['train_y'].astype(np.uint8)
         else:
+            print('Could not find dataset file : ', current_file_name)
             self.render_training_images()
             np.savez(current_file_name, train_x = self.train_x, mask_x = self.mask_x, train_y = self.train_y)
         self.noof_obj_pixels = np.count_nonzero(self.mask_x==0,axis=(1,2))
