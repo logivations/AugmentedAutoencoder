@@ -67,7 +67,7 @@ class Codebook(object):
         if return_idcs:
             return idcs
         else:
-            return self._dataset.viewsphere_for_embedding[idcs].squeeze(), self._dataset.angles[idcs]
+            return self._dataset.viewsphere_for_embedding[idcs].squeeze(), self._dataset.angles[idcs].squeeze()
 
 
 

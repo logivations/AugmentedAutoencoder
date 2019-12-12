@@ -66,7 +66,7 @@ class Dataset(object):
 
     @lazy_property
     def viewsphere_for_embedding(self):
-
+        print('Craeting viewsphere for embedding')
         viewsphere_for_embedding_file_path = os.path.join(self.workspace_path, 'viewsphere_for_embedding.npz')
 
         if os.path.exists(viewsphere_for_embedding_file_path):
@@ -76,7 +76,7 @@ class Dataset(object):
         else:
             Rs = []
             angles = []
-            sep_angle = self._kw['sep_angle']     # angle between two points on sphere in degrees
+            sep_angle = float(self._kw['sep_angle'])     # angle between two points on sphere in degrees
             for elev in np.arange(0, 89, sep_angle):
                 elev_rad = elev * np.pi / 180.0
                 azi_sep_ang = sep_angle / np.sin(np.pi / 2 - elev_rad)
@@ -126,7 +126,7 @@ class Dataset(object):
     def get_training_images(self, dataset_path, args):
         current_config_hash = hashlib.md5((str(args.items('Dataset')+args.items('Paths'))).encode('utf-8')).hexdigest()
         current_file_name = os.path.join(dataset_path, current_config_hash + '.npz')
-        if self._kw['create_new_dataset']:
+        if self._kw['create_new_dataset'] == 'True':
             self.create_dataset(dataset_dir='/data/pallet_dataset')
 
         if os.path.exists(current_file_name):
@@ -281,9 +281,11 @@ class Dataset(object):
             print("Unknown axis type for rotation matrix generation")
             raise ValueError
 
-    def create_dataset(self, dataset_dir, angular_res=360):
+    def create_dataset(self, dataset_dir, angular_res=60):
 
         # TODO: change this function for better spherical sampling and include cam rotation around z axis
+
+        print('Creating dataset (umut)')
 
         images_dir = os.path.join(dataset_dir, 'images')
         csv_file_path = os.path.join(dataset_dir, 'angles')
@@ -379,6 +381,8 @@ class Dataset(object):
 
 
     def render_training_images(self):
+        print('Render training images')
+
         kw = self._kw
         H, W = int(kw['h']), int(kw['w'])
         render_dims = eval(kw['render_dims'])
