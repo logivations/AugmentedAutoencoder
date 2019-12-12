@@ -282,6 +282,9 @@ class Dataset(object):
             raise ValueError
 
     def create_dataset(self, dataset_dir, angular_res=360):
+
+        # TODO: change this function for better spherical sampling and include cam rotation around z axis
+
         images_dir = os.path.join(dataset_dir, 'images')
         csv_file_path = os.path.join(dataset_dir, 'angles')
         csv_file = open(csv_file_path, 'w')
@@ -404,8 +407,9 @@ class Dataset(object):
 
             azimuth = float(i % 360)
             elevation = float((i // 360) % 90)
+            rot_z = np.random.random() * 350
 
-            R = self.get_rotation_matrix(0, axis='z')
+            R = self.get_rotation_matrix(rot_z, axis='z')
             R = R.dot(self.get_rotation_matrix(elevation, axis='x'))
             R = R.dot(self.get_rotation_matrix(azimuth, axis='y'))
             R = R.dot(self.get_rotation_matrix(90, axis='x'))
@@ -432,19 +436,12 @@ class Dataset(object):
                 far=clip_far,
                 random_light=False
             )
-            # render_time = time.time() - start_time
-            # cv2.imshow('bgr_x',bgr_x)
-            # cv2.imshow('bgr_y',bgr_y)
-            # cv2.waitKey(0)
-
             ys, xs = np.nonzero(depth_x > 0)
-
             try:
                 obj_bb = view_sampler.calc_2d_bbox(xs, ys, render_dims)
             except ValueError as e:
                 print('Object in Rendering not visible. Have you scaled the vertices to mm?')
                 break
-
 
             x, y, w, h = obj_bb
 
@@ -456,7 +453,6 @@ class Dataset(object):
             bgr_x = self.extract_square_patch(bgr_x, obj_bb_off, pad_factor,resize=(W,H),interpolation = cv2.INTER_NEAREST)
             depth_x = self.extract_square_patch(depth_x, obj_bb_off, pad_factor,resize=(W,H),interpolation = cv2.INTER_NEAREST)
             mask_x = depth_x == 0.
-
 
             ys, xs = np.nonzero(depth_y > 0)
             obj_bb = view_sampler.calc_2d_bbox(xs, ys, render_dims)
@@ -471,7 +467,6 @@ class Dataset(object):
             self.mask_x[i] = mask_x
             self.train_y[i] = bgr_y.astype(np.uint8)
 
-            #print 'rendertime ', render_time, 'processing ', time.time() - start_time
         bar.finish()
 
         print("Embedding size: ", str(self.embedding_size))
