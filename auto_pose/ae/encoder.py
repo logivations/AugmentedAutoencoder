@@ -64,6 +64,17 @@ class Encoder(object):
         )
 
         return z
+
+    def latent_vector(self, session, x):
+
+        if x.dtype == 'uint8':
+            x = x / 255.
+        if x.ndim == 3:
+            x = np.expand_dims(x, 0)
+
+        latent_representation = session.run(self.z, {self.x: x})
+
+        return latent_representation
     
     @lazy_property
     def q_sigma(self):
