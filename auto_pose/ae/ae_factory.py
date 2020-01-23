@@ -142,6 +142,39 @@ def build_codebook_from_name(experiment_name, experiment_group='', return_datase
         return codebook
 
 
+def build_encoder_and_decoder(model_dir, return_decoder=False):
+    import os
+    import configparser
+    import glob
+
+    cfg_file_path = glob.glob(os.path.join(model_dir, '*.cfg'))[0]
+
+    if os.path.exists(cfg_file_path):
+        args = configparser.ConfigParser()
+        args.read(cfg_file_path)
+    else:
+        print('ERROR: Config File not found: ', cfg_file_path)
+        return None
+
+    model_input_shape = (args['Dataset'].getint('H'), args['Dataset'].getint('W'), args['Dataset'].getint('C'))
+
+    import tensorflow as tf
+
+    experiment_name = 'my_autoencoder'
+
+    with tf.variable_scope(experiment_name):
+        x = tf.placeholder(tf.float32, [None,] + list(model_input_shape))
+        encoder = build_encoder(x, args)
+        if return_decoder:
+            reconst_target = tf.placeholder(tf.float32, [None,] + list(model_input_shape))
+            decoder = build_decoder(reconst_target, encoder, args)
+
+    if return_decoder:
+        return encoder, decoder
+    else:
+        return encoder
+
+
 def restore_checkpoint(session, saver, ckpt_dir, at_step=None):
 
     import tensorflow as tf
