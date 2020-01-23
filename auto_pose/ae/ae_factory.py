@@ -157,10 +157,12 @@ def build_encoder_and_decoder(model_dir, return_decoder=False):
         return None
 
     model_input_shape = (args['Dataset'].getint('H'), args['Dataset'].getint('W'), args['Dataset'].getint('C'))
+    latent_vector_size = args['Network'].getint('LATENT_SPACE_SIZE')
 
     import tensorflow as tf
 
-    experiment_name = 'my_autoencoder'
+    # experiment_name = 'my_autoencoder'
+    experiment_name = os.path.splitext(os.path.basename(cfg_file_path))[0]
 
     with tf.variable_scope(experiment_name):
         x = tf.placeholder(tf.float32, [None,] + list(model_input_shape))
@@ -169,10 +171,11 @@ def build_encoder_and_decoder(model_dir, return_decoder=False):
             reconst_target = tf.placeholder(tf.float32, [None,] + list(model_input_shape))
             decoder = build_decoder(reconst_target, encoder, args)
 
-    if return_decoder:
-        return encoder, decoder
-    else:
-        return encoder
+        if return_decoder:
+            return encoder, decoder, model_input_shape, latent_vector_size
+        else:
+            return encoder, model_input_shape, latent_vector_size
+
 
 
 def restore_checkpoint(session, saver, ckpt_dir, at_step=None):
