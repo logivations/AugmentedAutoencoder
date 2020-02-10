@@ -77,12 +77,19 @@ class Dataset(object):
             Rs = []
             angles = []
             sep_angle = float(self._kw['sep_angle'])     # angle between two points on sphere in degrees
-            for elev in np.arange(0, 89, sep_angle):
+
+            for elev in np.arange(5, 89, 2):
+
                 elev_rad = elev * np.pi / 180.0
-                azi_sep_ang = sep_angle / np.sin(np.pi / 2 - elev_rad)
-                for azim in np.arange(0, 359, azi_sep_ang):
+                # azi_sep_ang = sep_angle / np.sin(np.pi / 2 - elev_rad)
+                azi_sep_ang = 2
+
+                for azim in np.arange(0, 179, azi_sep_ang):
+
                     azim = azim + np.random.uniform(0.0, 0.9 * azi_sep_ang)
-                    for rot_z in np.arange(0.0, 359.0, sep_angle):
+                    rot_z_seperation = 3
+
+                    for rot_z in np.arange(-39, 39, rot_z_seperation):
 
                         R = self.get_rotation_matrix(rot_z, axis='z')
                         R = R.dot(self.get_rotation_matrix(elev, axis='x'))
@@ -291,6 +298,8 @@ class Dataset(object):
         print('Creating dataset (umut)')
 
         images_dir = os.path.join(dataset_dir, 'images')
+        if not os.path.isdir(images_dir):
+            os.makedirs(images_dir)
         csv_file_path = os.path.join(dataset_dir, 'angles')
         csv_file = open(csv_file_path, 'w')
         writer = csv.writer(csv_file)
@@ -310,75 +319,77 @@ class Dataset(object):
         max_rel_offset = float(kw['max_rel_offset'])
         t = np.array([0, 0, float(kw['radius'])])
 
-        for elevation in range(90):
-            for azimuth in np.linspace(0, 359.9, int(angular_res * np.sin(np.pi/2 - (np.pi * elevation / 180.0)))):
-                image_name = 'image_' + str(image_id)
-                image_id += 1
-                image_path = os.path.join(images_dir, image_name + '.jpg')
-                writer.writerow([image_name, elevation, azimuth])
+        for elevation in np.arange(5, 89, 2.5):
+            for azimuth in np.arange(0, 179.9, 2.5):
+                for rot_z in np.arange(-30, 30, 3.0):
+                    image_name = 'image_' + str(image_id)
+                    image_id += 1
+                    image_path = os.path.join(images_dir, image_name + '.jpg')
+                    writer.writerow([image_name, elevation, azimuth, rot_z])
+                    print([image_name, elevation, azimuth, rot_z])
 
-                R = self.get_rotation_matrix(0, axis='z')
-                R = R.dot(self.get_rotation_matrix(elevation, axis='x'))
-                R = R.dot(self.get_rotation_matrix(azimuth, axis='y'))
-                R = R.dot(self.get_rotation_matrix(90, axis='x'))
+                    R = self.get_rotation_matrix(rot_z, axis='z')
+                    R = R.dot(self.get_rotation_matrix(elevation, axis='x'))
+                    R = R.dot(self.get_rotation_matrix(azimuth, axis='y'))
+                    R = R.dot(self.get_rotation_matrix(90, axis='x'))
 
-                bgr_x, depth_x = self.renderer.render(
-                    obj_id=0,
-                    W=render_dims[0],
-                    H=render_dims[1],
-                    K=K.copy(),
-                    R=R,
-                    t=t,
-                    near=clip_near,
-                    far=clip_far,
-                    random_light=True
-                )
-                bgr_y, depth_y = self.renderer.render(
-                    obj_id=0,
-                    W=render_dims[0],
-                    H=render_dims[1],
-                    K=K.copy(),
-                    R=R,
-                    t=t,
-                    near=clip_near,
-                    far=clip_far,
-                    random_light=False
-                )
+                    bgr_x, depth_x = self.renderer.render(
+                        obj_id=0,
+                        W=render_dims[0],
+                        H=render_dims[1],
+                        K=K.copy(),
+                        R=R,
+                        t=t,
+                        near=clip_near,
+                        far=clip_far,
+                        random_light=True
+                    )
+                    bgr_y, depth_y = self.renderer.render(
+                        obj_id=0,
+                        W=render_dims[0],
+                        H=render_dims[1],
+                        K=K.copy(),
+                        R=R,
+                        t=t,
+                        near=clip_near,
+                        far=clip_far,
+                        random_light=False
+                    )
 
-                ys, xs = np.nonzero(depth_x > 0)
+                    ys, xs = np.nonzero(depth_x > 0)
 
-                try:
+                    try:
+                        obj_bb = view_sampler.calc_2d_bbox(xs, ys, render_dims)
+                    except ValueError as e:
+                        print('Object in Rendering not visible. Have you scaled the vertices to mm?')
+                        break
+
+
+                    x, y, w, h = obj_bb
+
+                    rand_trans_x = np.random.uniform(-max_rel_offset, max_rel_offset) * w
+                    rand_trans_y = np.random.uniform(-max_rel_offset, max_rel_offset) * h
+
+                    obj_bb_off = obj_bb + np.array([rand_trans_x,rand_trans_y,0,0])
+
+                    bgr_x = self.extract_square_patch(bgr_x, obj_bb_off, pad_factor,resize=(W,H),interpolation = cv2.INTER_NEAREST)
+                    depth_x = self.extract_square_patch(depth_x, obj_bb_off, pad_factor,resize=(W,H),interpolation = cv2.INTER_NEAREST)
+                    mask_x = depth_x == 0.
+
+
+                    ys, xs = np.nonzero(depth_y > 0)
                     obj_bb = view_sampler.calc_2d_bbox(xs, ys, render_dims)
-                except ValueError as e:
-                    print('Object in Rendering not visible. Have you scaled the vertices to mm?')
-                    break
 
+                    bgr_y = self.extract_square_patch(bgr_y, obj_bb, pad_factor,resize=(W,H),interpolation = cv2.INTER_NEAREST)
 
-                x, y, w, h = obj_bb
+                    if self.shape[2] == 1:
+                        bgr_x = cv2.cvtColor(np.uint8(bgr_x), cv2.COLOR_BGR2GRAY)[:,:,np.newaxis]
+                        bgr_y = cv2.cvtColor(np.uint8(bgr_y), cv2.COLOR_BGR2GRAY)[:,:,np.newaxis]
 
-                rand_trans_x = np.random.uniform(-max_rel_offset, max_rel_offset) * w
-                rand_trans_y = np.random.uniform(-max_rel_offset, max_rel_offset) * h
-
-                obj_bb_off = obj_bb + np.array([rand_trans_x,rand_trans_y,0,0])
-
-                bgr_x = self.extract_square_patch(bgr_x, obj_bb_off, pad_factor,resize=(W,H),interpolation = cv2.INTER_NEAREST)
-                depth_x = self.extract_square_patch(depth_x, obj_bb_off, pad_factor,resize=(W,H),interpolation = cv2.INTER_NEAREST)
-                mask_x = depth_x == 0.
-
-
-                ys, xs = np.nonzero(depth_y > 0)
-                obj_bb = view_sampler.calc_2d_bbox(xs, ys, render_dims)
-
-                bgr_y = self.extract_square_patch(bgr_y, obj_bb, pad_factor,resize=(W,H),interpolation = cv2.INTER_NEAREST)
-
-                if self.shape[2] == 1:
-                    bgr_x = cv2.cvtColor(np.uint8(bgr_x), cv2.COLOR_BGR2GRAY)[:,:,np.newaxis]
-                    bgr_y = cv2.cvtColor(np.uint8(bgr_y), cv2.COLOR_BGR2GRAY)[:,:,np.newaxis]
-
-                # train_x.append(bgr_x.astype(np.uint8))
-                # self.mask_x[i] = mask_x
-                image = bgr_y.astype(np.uint8)
-                cv2.imwrite(image_path, image)
+                    # train_x.append(bgr_x.astype(np.uint8))
+                    # self.mask_x[i] = mask_x
+                    image = bgr_y.astype(np.uint8)
+                    cv2.imwrite(image_path, image)
 
         csv_file.close()
 
@@ -404,7 +415,21 @@ class Dataset(object):
         bar = progressbar.ProgressBar(maxval=self.noof_training_imgs,widgets=widgets)
         bar.start()
 
+        angles = []
+
+        el_sep = 3
+        for elev in np.arange(5, 85, el_sep):
+            azi_sep_ang = 2.5
+            for azim in np.arange(0, 179, azi_sep_ang):
+                azim = azim + np.random.uniform(0.0, 0.9 * azi_sep_ang)
+                rot_z_seperation = 3.5
+                for rot_z in np.arange(-38.5, 38.5, rot_z_seperation):
+                    angles.append([elev, azim, rot_z])
+
+
         for i in np.arange(self.noof_training_imgs):
+
+
             bar.update(i)
 
             # R = transform.random_rotation_matrix()[:3,:3]
@@ -412,9 +437,11 @@ class Dataset(object):
             # azimuth = np.random.random() * 360
             # elevation = np.random.random() * 90
 
-            azimuth = float(i % 360)
-            elevation = float((i // 360) % 90)
-            rot_z = np.random.random() * 350
+            # azimuth = float(i % 360)
+            # elevation = float((i // 360) % 90)
+            # rot_z = np.random.random() * 350
+
+            elevation, azimuth, rot_z = angles[i]
 
             R = self.get_rotation_matrix(rot_z, axis='z')
             R = R.dot(self.get_rotation_matrix(elevation, axis='x'))
