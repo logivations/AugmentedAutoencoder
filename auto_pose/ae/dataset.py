@@ -132,6 +132,7 @@ class Dataset(object):
 
     def get_training_images(self, dataset_path, args):
         current_config_hash = hashlib.md5((str(args.items('Dataset')+args.items('Paths'))).encode('utf-8')).hexdigest()
+        current_config_hash = 'dataa'
         current_file_name = os.path.join(dataset_path, current_config_hash + '.npz')
 
         if self._kw['create_new_dataset'] == 'True':
