@@ -1,3 +1,5 @@
+This is the modified version of the original repository https://github.com/DLR-RM/AugmentedAutoencoder.
+
 ## Augmented Autoencoders  
 
 ### Implicit 3D Orientation Learning for 6D Object Detection from RGB Images   
