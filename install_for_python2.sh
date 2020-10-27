@@ -10,6 +10,7 @@ pip install --user pyassimp==3.3
 pip install --user imgaug
 
 cd /data/AugmentedAutoencoder
+pip uninstall -y auto-pose
 pip install --user .
 
 echo 'AugmentedAutoencoder installed. Enjoy your module.'
